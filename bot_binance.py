@@ -3,10 +3,17 @@ import pandas as pd
 import numpy as np
 import time
 import pendulum
+import os
+from dotenv import load_dotenv
+from pathlib import Path
+
+env_path = Path(__file__).parent / 'env' / '.env'
+print(f"Carregando o .env de: {env_path}")
+load_dotenv(dotenv_path=env_path)
 
 # Substitua pelas suas credenciais da Binance
-API_KEY = ""
-API_SECRET = "" 
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
 
 client = Client(API_KEY, API_SECRET)
 

@@ -3,6 +3,26 @@ import pandas as pd
 import numpy as np
 import time
 import pendulum
+import os
+import logging
+from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+env_path = Path(__file__).parent / 'env' / '.env'
+log_dir = Path(__file__).parent / "logs" 
+log_dir.mkdir(exist_ok=True)  # Cria a pasta "logs" se não existir
+log_file = log_dir / "trading.log"
+
+load_dotenv(dotenv_path=env_path)
+
+# Configuração do logger
+logging.basicConfig(
+    filename=log_file,  # Caminho correto para o log
+    level=logging.INFO,  # Nível do log
+    format="%(asctime)s - %(message)s",  # Formato da mensagem
+    datefmt="%Y-%m-%d %H:%M",  # Formato da data no log
+)
 
 # # Exibir todas as colunas
 # pd.set_option('display.max_columns', None)
@@ -11,8 +31,9 @@ import pendulum
 # pd.set_option('display.max_rows', None)
 
 # Substitua pelas suas credenciais da Binance
-API_KEY = ""
-API_SECRET = ""
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+TIMEZONE = os.getenv("TIMEZONE")
 
 client = Client(API_KEY, API_SECRET)
 
@@ -51,8 +72,12 @@ def get_last_n_candles_and_ma99(n, interval, symbol, timezone):
                     (df["open_time"].dt.minute == hour_and_minute[1])
                     ].index
     
+    # print('hora dentro da funcao', hour_now.hour)
+    # print('minuto dentro da funcao', hour_now.minute)
+    # print(indices_iguais)
+
     # Remover as linhas com hora e minuto iguais à hora atual
-    df.drop(index=indices_iguais, inplace=True)
+    df = df.drop(index=indices_iguais)
 
     # Salve o DataFrame com os últimos N candles escolhidos
     df = df.tail(n).reset_index(drop=True)
@@ -71,21 +96,76 @@ def get_last_n_candles_and_ma99(n, interval, symbol, timezone):
     # Retornar as últimas n linhas com os índices resetados
     return df
 
+def process_symbol(symbol):
+    df = get_last_n_candles_and_ma99(5, interval, symbol, TIMEZONE)
+    symbols_dataframes[symbol] = df  # Salvar no dicionário
+    print(f"{symbol} atualizado!")
 
-# Define o par de moedas e o intervalo (1m)
-symbol = "DOTUSDT"
-interval = Client.KLINE_INTERVAL_1MINUTE  # 1 minuto
-timezone = 'America/Manaus'
 
-
-while True:
-    now = pendulum.now("America/Manaus")
-    
-    # Ajuste para o próximo minuto
+def wait_seconds_until_the_next_minute(timezone):
+    now = pendulum.now(timezone)
     seconds_to_next_minute = 60 - now.second
-    print(f"Aguardando {seconds_to_next_minute} segundos para o próximo minuto...")
+    print(f"Aguardando {seconds_to_next_minute} segundos para o próximo minuto...\n")
     time.sleep(seconds_to_next_minute)
 
-    last_5_candles = get_last_n_candles_and_ma99(5, interval, symbol, timezone) # 5+99 to get MA(99) in the last 5
+# Função para registrar o preço no log
+def log_entry_price(timezone, symbol, price):
+    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
 
-    print(last_5_candles)
+    log_message = f"{now} - ENTRY - {symbol}: {price}"
+    logging.info(log_message)  # Escreve no arquivo de log
+    print(log_message)  # Opcional: printa no terminal também
+
+def log_win_price(timezone, symbol, price):
+    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
+    log_message = f"{now} - WIN - {symbol}: {price}"  # Formato da mensagem
+
+    logging.info(log_message)  # Escreve no arquivo de log
+    print(log_message)
+
+def log_loss_price(timezone, symbol, price):
+    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
+    log_message = f"{now} - LOSS - {symbol}: {price}"  # Formato da mensagem
+
+    logging.info(log_message)  # Escreve no arquivo de log
+    print(log_message)
+
+# Define o par de moedas e o intervalo (1m)
+symbols = ["SUIUSDT", "DOTUSDT", "XRPUSDT", "ETHUSDT"]
+interval = Client.KLINE_INTERVAL_1MINUTE  # 1 minuto
+symbols_dataframes = {}
+waiting_trade = False
+
+# normalizar o horário para atualizar no final de cada minuto
+
+while True:
+
+    wait_seconds_until_the_next_minute(TIMEZONE)
+    print('Data Atual:', pendulum.now().format("DD-MM-YYYY - HH:mm"), end='\n\n')
+
+    with ThreadPoolExecutor(max_workers=len(symbols)) as executor:
+        executor.map(process_symbol, symbols)
+
+    for x in symbols:
+        print()
+        print(x)
+        print(symbols_dataframes[x])
+        all_ok = symbols_dataframes[x]["green_above_MA99"].eq("ok").all()
+        if all_ok:
+            print(f'possível entrada em {x}!')
+            price = client.get_symbol_ticker(symbol=x)["price"]  # Obter preço atual
+            win_price = price+(price*0.005)
+            loss_price = price-(price*0.01)
+            log_entry_price(TIMEZONE, x, price)
+            waiting_trade = True
+            while waiting_trade:
+                price = client.get_symbol_ticker(symbol=x)["price"]  # Obter preço atual
+                if price >= win_price:
+                    log_win_price(TIMEZONE, x, price)
+                    waiting_trade = False
+                elif price <= loss_price:
+                    log_loss_price(TIMEZONE, x, price)
+                    waiting_trade = False
+            break
+        print()
+    
