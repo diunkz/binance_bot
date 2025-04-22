@@ -21,7 +21,7 @@ logging.basicConfig(
     filename=log_file,  # Caminho correto para o log
     level=logging.INFO,  # Nível do log
     format="%(asctime)s - %(message)s",  # Formato da mensagem
-    datefmt="%Y-%m-%d %H:%M",  # Formato da data no log
+    datefmt="%d-%m-%Y %H:%M",  # Formato da data no log
 )
 
 # # Exibir todas as colunas
@@ -35,11 +35,17 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 TIMEZONE = os.getenv("TIMEZONE")
 
-client = Client(API_KEY, API_SECRET)
+# client = Client(API_KEY, API_SECRET)
+client = Client(API_KEY, API_SECRET, {"timeout": 3})  # Define timeout global
+
 
 def get_last_n_candles_and_ma99(n, interval, symbol, timezone):
-    # Obtendo os dados do cliente
-    klines = client.get_klines(symbol=symbol, interval=interval, limit=n+99)
+    try:
+        # Obtendo os dados do cliente
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=n+99)
+    except Exception as e:
+        logging.error(f"Erro ao obter candles para {symbol}: {e}")
+        return pd.DataFrame()  # Retorna um DataFrame vazio para evitar quebra
 
     # Criando o dataframe
     df = pd.DataFrame(klines, columns=[
@@ -97,9 +103,17 @@ def get_last_n_candles_and_ma99(n, interval, symbol, timezone):
     return df
 
 def process_symbol(symbol):
-    df = get_last_n_candles_and_ma99(5, interval, symbol, TIMEZONE)
-    symbols_dataframes[symbol] = df  # Salvar no dicionário
-    print(f"{symbol} atualizado!")
+    try:
+        df = get_last_n_candles_and_ma99(5, interval, symbol, TIMEZONE)
+        if df.empty:
+            logging.warning(f"DataFrame vazio para {symbol}, ignorando.")
+            return
+        symbols_dataframes[symbol] = df
+        print(f"{symbol} atualizado!")
+    except Exception as e:
+        print('erro na função process_symbol: ', e)
+        logging.error(f"Erro ao processar {symbol}: {e}\n")
+
 
 
 def wait_seconds_until_the_next_minute(timezone):
@@ -109,29 +123,25 @@ def wait_seconds_until_the_next_minute(timezone):
     time.sleep(seconds_to_next_minute)
 
 # Função para registrar o preço no log
-def log_entry_price(timezone, symbol, price):
-    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
-
-    log_message = f"{now} - ENTRY - {symbol}: {price}"
+def log_entry_price(symbol, price):
+    log_message = f"{symbol}: {price} - 💰 ENTRADA"
     logging.info(log_message)  # Escreve no arquivo de log
     print(log_message)  # Opcional: printa no terminal também
 
-def log_win_price(timezone, symbol, price):
-    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
-    log_message = f"{now} - WIN - {symbol}: {price}"  # Formato da mensagem
+def log_win_price(symbol, price):
+    log_message = f"{symbol}: {price} - ✅ WIN\n"  # Formato da mensagem
 
     logging.info(log_message)  # Escreve no arquivo de log
     print(log_message)
 
-def log_loss_price(timezone, symbol, price):
-    now = pendulum.now(timezone).format("YYYY-MM-DD HH:mm")  # Data e hora formatadas
-    log_message = f"{now} - LOSS - {symbol}: {price}"  # Formato da mensagem
+def log_loss_price(symbol, price):
+    log_message = f"{symbol}: {price} - ❌ LOSS\n"  # Formato da mensagem
 
     logging.info(log_message)  # Escreve no arquivo de log
     print(log_message)
 
 # Define o par de moedas e o intervalo (1m)
-symbols = ["SUIUSDT", "DOTUSDT", "XRPUSDT", "ETHUSDT"]
+symbols = ["SUIUSDT", "DOTUSDT", "XRPUSDT", "ETHUSDT", "ADAUSDT"]
 interval = Client.KLINE_INTERVAL_1MINUTE  # 1 minuto
 symbols_dataframes = {}
 waiting_trade = False
@@ -139,33 +149,58 @@ waiting_trade = False
 # normalizar o horário para atualizar no final de cada minuto
 
 while True:
+    try:
+        wait_seconds_until_the_next_minute(TIMEZONE)
+        print('Data Atual:', pendulum.now().format("DD-MM-YYYY - HH:mm"), end='\n\n')
 
-    wait_seconds_until_the_next_minute(TIMEZONE)
-    print('Data Atual:', pendulum.now().format("DD-MM-YYYY - HH:mm"), end='\n\n')
+        with ThreadPoolExecutor(max_workers=len(symbols)) as executor:
+            executor.map(process_symbol, symbols)
 
-    with ThreadPoolExecutor(max_workers=len(symbols)) as executor:
-        executor.map(process_symbol, symbols)
+        for x in symbols:
+            print()
+            print(x)
+            print(symbols_dataframes[x])
+            all_ok = symbols_dataframes[x]["green_above_MA99"].eq("ok").all()
+            if all_ok:
+                print(f'Possível entrada em {x}!')
+                os.system("tput bel")
+                try:
+                    price = float(client.get_symbol_ticker(symbol=x)["price"])
+                    win_price = price + (price * 0.008)
+                    loss_price = price - (price * 0.002)
+                    log_entry_price(x, price)
+                    waiting_trade = True
 
-    for x in symbols:
-        print()
-        print(x)
-        print(symbols_dataframes[x])
-        all_ok = symbols_dataframes[x]["green_above_MA99"].eq("ok").all()
-        if all_ok:
-            print(f'possível entrada em {x}!')
-            price = client.get_symbol_ticker(symbol=x)["price"]  # Obter preço atual
-            win_price = price+(price*0.005)
-            loss_price = price-(price*0.01)
-            log_entry_price(TIMEZONE, x, price)
-            waiting_trade = True
-            while waiting_trade:
-                price = client.get_symbol_ticker(symbol=x)["price"]  # Obter preço atual
-                if price >= win_price:
-                    log_win_price(TIMEZONE, x, price)
+                    while waiting_trade:
+                        try:
+                            price = float(client.get_symbol_ticker(symbol=x)["price"])  # Tenta obter o preço
+                            if price >= win_price:
+                                log_win_price(x, price)
+                                waiting_trade = False
+                            elif price <= loss_price:
+                                log_loss_price(x, price)
+                                waiting_trade = False
+
+                            print(f"Preço de {x}: {price}")
+                            print(f"Meta de win: {win_price}")
+                            print(f"Meta de loss: {loss_price}")
+                            print()
+
+                        except Exception as e:
+                            logging.error(f"Erro ao obter preço de {x}: {e}")  # Log do erro
+                            print(f"Erro ao obter preço de {x}, tentando novamente...")  
+                            # time.sleep(1)  # Pequena pausa antes de tentar de novo para evitar muitas requisições seguida
+                        # time.sleep(0.5)  # Intervalo normal entre requisições
+                    os.system("tput bel")
+                    # time.sleep(540) # esperando 9 min após um trade
+                    break
+                except Exception as e:
+                    logging.error(f"Erro ao monitorar preço de {x}: {e}\n")
                     waiting_trade = False
-                elif price <= loss_price:
-                    log_loss_price(TIMEZONE, x, price)
-                    waiting_trade = False
-            break
-        print()
-    
+            print()
+
+    except Exception as e:
+        logging.critical(f"Erro crítico no loop principal: {e}\n")
+        time.sleep(10)  # Espera um pouco antes de tentar novamente
+
+

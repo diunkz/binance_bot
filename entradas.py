@@ -25,27 +25,31 @@ entrada_anterior = entrada
 emprestimos_banca = []
 #32 loss seguidos pra perder
 operacoes = ['win', 'loss', 'loss', 'loss', 'loss','loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'loss', 'win', 'loss']
-operacoes = operacoes*10
-#real = ['win', 'win', 'win', 'loss', 'win', 'win', 'win', 'loss', 'win', 'loss', 'loss', 'loss', 'loss', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'loss', 'win', 'loss', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'loss', 'loss', 'win', 'win', 'loss']
+# operacoes = operacoes*10
+# real = ['win', 'win', 'win', 'loss', 'win', 'win', 'win', 'loss', 'win', 'loss', 'loss', 'loss', 'loss', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'loss', 'win', 'loss', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'win', 'win', 'win', 'loss', 'loss', 'win', 'win', 'loss']
 #real*=3
 # operacoes = ['win', 'loss', 'loss', 'loss', 'loss', 'loss', 'win', 'win', 'loss', 'loss', 'loss', 'loss', 'loss', 'win', 'win', 'loss', 'loss', 'loss', 'loss', 'loss', 'win']
-real = ['win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'loss', 'win']
-real = ['loss', 'loss', 'win', 'win', 'loss', 'loss', 'win', 'loss', 'win']
+# real = ['win', 'win', 'win', 'win', 'win', 'loss', 'win', 'win', 'loss', 'win']
+# real = ['loss', 'loss', 'win', 'win', 'loss', 'loss', 'win', 'loss', 'win']
 
 emprestimos = []
 wins = 0
 losses = 0
 
-
 print('--------------------')
 
-for x in real:
+for x in operacoes:
+    nova_meta = 0
+    quantidade_emprestada = 0
+    print('dentro do for')
     print('entrada:', entrada)
     print('banca de empréstimo: ', banca_emprestimo)
     print('total: ', entrada+banca_emprestimo)
     print('wins: ', wins)
     print('losses: ', losses)
+    print('-'*20)
     if x == 'win':
+        print('dentro do win')
         wins += 1
         if (entrada > (banca_inicial*80/100)) and (banca_emprestimo < (banca_inicial*5/100)):
             banca_inicial = entrada+banca_emprestimo
@@ -56,8 +60,9 @@ for x in real:
         entrada = ganhou(entrada)
         print('meta: ', entrada)
         print('GANHOU!')
-
+        print('-'*20)
     elif x == 'loss':
+        print('dentro do loss')
         losses += 1
         print('PERDEU!')
         sobrou_do_loss = perdeu(entrada)
@@ -69,11 +74,17 @@ for x in real:
         meta_anterior = ganhou(entrada)
         nova_meta = quantidade_emprestada+meta_anterior
         entrada=entrada_baseada_na_meta(nova_meta)
-    
+        print('-'*20)
     if banca_emprestimo < 2:
+        print('quebrou')
         break
         
     #print(emprestimos)
-    print('--------------------')
+    print('resultado')
     print(f'{wins} wins e {losses} losses!')
+    print('entrada', entrada)
+    print('quantidade emprestada', quantidade_emprestada)
+    print('nova meta', nova_meta)
+    print('banca emprestimo', banca_emprestimo)
     print('resultado final: ', entrada+banca_emprestimo)
+    print('-'*20)
